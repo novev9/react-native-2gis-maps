@@ -3,7 +3,8 @@ buildscript {
     kotlinVersion: "2.0.21",
     minSdkVersion: 24,
     compileSdkVersion: 36,
-    targetSdkVersion: 36
+    targetSdkVersion: 36,
+    dgisSdkVersion: "13.2.0"
   ]
 
   ext.getExtOrDefault = { prop ->
@@ -57,11 +58,23 @@ android {
   }
 
   compileOptions {
-    sourceCompatibility JavaVersion.VERSION_1_8
-    targetCompatibility JavaVersion.VERSION_1_8
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
   }
+
+  kotlinOptions {
+    jvmTarget = "17"
+  }
+}
+
+repositories {
+  mavenCentral()
+  google()
+  maven { url "https://artifactory.2gis.dev/sdk-maven-release" }
 }
 
 dependencies {
   implementation "com.facebook.react:react-android"
+  implementation "ru.dgis.sdk:sdk-map:${getExtOrDefault('dgisSdkVersion')}"
+  implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1"
 }

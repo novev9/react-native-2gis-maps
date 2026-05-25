@@ -16,5 +16,17 @@ Pod::Spec.new do |s|
   s.source_files = "ios/**/*.{h,m,mm,swift,cpp}"
   s.private_header_files = "ios/**/*.h"
 
+  s.static_framework = true
+  s.swift_version = "5.0"
+
+  s.dependency "DGisMobileSDK", "13.2.0-map"
+
+  s.pod_target_xcconfig = {
+    "DEFINES_MODULE" => "YES",
+    "CLANG_CXX_LANGUAGE_STANDARD" => "c++20",
+    "OTHER_LDFLAGS" => "$(inherited) -ObjC",
+    "LD_RUNPATH_SEARCH_PATHS" => "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
+  }
+
   install_modules_dependencies(s)
 end

@@ -1,4 +1,4 @@
-package dgismaps.example
+package com.novev9.dgismaps
 
 import android.app.Application
 import com.facebook.react.PackageList

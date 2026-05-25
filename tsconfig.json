@@ -2,7 +2,7 @@
   "compilerOptions": {
     "rootDir": ".",
     "paths": {
-      "react-native-dgis-maps": ["./src/index"]
+      "react-native-2gis-maps": ["./src/index"]
     },
     "allowUnreachableCode": false,
     "allowUnusedLabels": false,

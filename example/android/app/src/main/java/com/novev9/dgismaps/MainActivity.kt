@@ -1,4 +1,4 @@
-package dgismaps.example
+package com.novev9.dgismaps
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate

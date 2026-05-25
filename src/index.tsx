@@ -1,1 +1,27 @@
-export { DgisMapsView } from './DgisMapsView';
+export {
+  DGisMap,
+  initialize,
+  isInitialized,
+  requestLocationPermission,
+  hasLocationPermission,
+  type DGisMapHandle,
+  type DGisMapProps,
+  type DGisMarkerInput,
+  type DGisPolylineInput,
+  type DGisPolygonInput,
+  type DGisCircleInput,
+  type DGisFlyToOptions,
+  type ColorLike,
+} from './DgisMap';
+export type {
+  Camera,
+  Marker,
+  Polyline,
+  Polygon,
+  Circle,
+  OnMapReadyEvent,
+  OnMapTapEvent,
+  OnMarkerPressEvent,
+  OnCameraChangedEvent,
+  OnUserLocationChangedEvent,
+} from './DgisMapsViewNativeComponent';
