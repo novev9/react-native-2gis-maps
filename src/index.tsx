@@ -13,12 +13,18 @@ export {
   type DGisFlyToOptions,
   type ColorLike,
 } from './DgisMap';
-export type {
-  Camera,
+export {
   Marker,
   Polyline,
   Polygon,
   Circle,
+  type DGisMarkerChildProps,
+  type DGisPolylineChildProps,
+  type DGisPolygonChildProps,
+  type DGisCircleChildProps,
+} from './components';
+export type {
+  Camera,
   OnMapReadyEvent,
   OnMapTapEvent,
   OnMarkerPressEvent,

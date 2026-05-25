@@ -15,6 +15,7 @@ import {
   type ViewProps,
 } from 'react-native';
 import NativeDgisMapsModule from './NativeDgisMapsModule';
+import { collectMapChildren } from './components';
 import DgisMapsViewNativeComponent, {
   type Camera,
   type Circle,
@@ -95,9 +96,13 @@ export type DGisMapHandle = {
 export type DGisMapProps = ViewProps & {
   apiKey?: string;
   initialCamera?: Camera;
+  /** @deprecated prefer nesting `<Marker />` children — kept for v0 callers. */
   markers?: ReadonlyArray<DGisMarkerInput>;
+  /** @deprecated prefer nesting `<Polyline />` children. */
   polylines?: ReadonlyArray<DGisPolylineInput>;
+  /** @deprecated prefer nesting `<Polygon />` children. */
   polygons?: ReadonlyArray<DGisPolygonInput>;
+  /** @deprecated prefer nesting `<Circle />` children. */
   circles?: ReadonlyArray<DGisCircleInput>;
   showsUserLocation?: boolean;
   clusteringEnabled?: boolean;
@@ -214,8 +219,19 @@ function DGisMapImpl(
     circles,
     clusterColor,
     clusterTextColor,
+    children,
     ...rest
   } = props;
+
+  // Collect <Marker /> / <Polyline /> / <Polygon /> / <Circle /> children and
+  // merge with the deprecated array props. Children win over the prop arrays
+  // when both an id from JSX and an id from `markers={...}` collide — the
+  // JSX child is the more recently-stated source of truth.
+  const fromChildren = collectMapChildren(children);
+  const mergedMarkers = mergeById(markers, fromChildren.markers);
+  const mergedPolylines = mergeById(polylines, fromChildren.polylines);
+  const mergedPolygons = mergeById(polygons, fromChildren.polygons);
+  const mergedCircles = mergeById(circles, fromChildren.circles);
   const viewRef = useRef<React.ComponentRef<
     typeof DgisMapsViewNativeComponent
   > | null>(null);
@@ -251,15 +267,30 @@ function DGisMapImpl(
   return (
     <DgisMapsViewNativeComponent
       ref={viewRef}
-      markers={mapMarkers(markers)}
-      polylines={mapPolylines(polylines)}
-      polygons={mapPolygons(polygons)}
-      circles={mapCircles(circles)}
+      markers={mapMarkers(mergedMarkers)}
+      polylines={mapPolylines(mergedPolylines)}
+      polygons={mapPolygons(mergedPolygons)}
+      circles={mapCircles(mergedCircles)}
       clusterColor={toArgb(clusterColor)}
       clusterTextColor={toArgb(clusterTextColor)}
       {...rest}
     />
   );
+}
+
+function mergeById<T extends { id: string }>(
+  arrayProp: ReadonlyArray<T> | undefined,
+  childItems: T[]
+): ReadonlyArray<T> | undefined {
+  if (!arrayProp || arrayProp.length === 0) {
+    return childItems.length > 0 ? childItems : undefined;
+  }
+  if (childItems.length === 0) return arrayProp;
+  const out = new Map<string, T>();
+  arrayProp.forEach((item) => out.set(item.id, item));
+  // Children override on id collision — last declaration wins.
+  childItems.forEach((item) => out.set(item.id, item));
+  return Array.from(out.values());
 }
 
 export const DGisMap = forwardRef<DGisMapHandle, DGisMapProps>(DGisMapImpl);
