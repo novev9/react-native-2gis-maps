@@ -400,7 +400,7 @@ class DgisMapsView(context: Context) : FrameLayout(context) {
         Zoom(18f),
         ClusterRenderer(clusterColor, clusterTextColor),
         Zoom(1f),
-        ""
+        "dgis-clusters"
       )
     } else {
       MapObjectManager(readyMap)

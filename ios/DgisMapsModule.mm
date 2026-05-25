@@ -16,11 +16,20 @@ RCT_EXPORT_MODULE(DgisMapsModule)
   return std::make_shared<facebook::react::NativeDgisMapsModuleSpecJSI>(params);
 }
 
-- (void)initialize:(NSDictionary *)options
-          resolve:(RCTPromiseResolveBlock)resolve
-           reject:(RCTPromiseRejectBlock)reject
+- (void)initialize:(JS::NativeDgisMapsModule::InitializeOptions &)options
+           resolve:(RCTPromiseResolveBlock)resolve
+            reject:(RCTPromiseRejectBlock)reject
 {
-  [[DgisMapsModuleImpl shared] initialize:options resolve:resolve reject:reject];
+  // Codegen generates a typed wrapper that boxes the JS object; unbox it back into a
+  // plain NSDictionary so the existing Swift impl keeps reading apiKey / logLevel.
+  NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithCapacity:2];
+  if (NSString *apiKey = options.apiKey()) {
+    dict[@"apiKey"] = apiKey;
+  }
+  if (NSString *logLevel = options.logLevel()) {
+    dict[@"logLevel"] = logLevel;
+  }
+  [[DgisMapsModuleImpl shared] initialize:dict resolve:resolve reject:reject];
 }
 
 - (NSNumber *)isInitialized

@@ -130,6 +130,16 @@ static NSArray *DgisCirclesToArray(const std::vector<DgisMapsViewCirclesStruct> 
   return self;
 }
 
+- (void)didMoveToWindow
+{
+  [super didMoveToWindow];
+  // Fabric's ComponentView base class doesn't expose `reactTag` the way Paper
+  // did, so we can't propagate the JS-side tag from here. Instead the impl
+  // (DgisMapsViewImpl) registers itself globally on init and the module
+  // resolves "the current map" by picking the only live entry. Good enough
+  // while there's one map on screen; revisit when multi-map is needed.
+}
+
 - (void)emitEvent:(NSString *)eventName body:(NSDictionary *)body
 {
   const auto eventEmitter = std::static_pointer_cast<const DgisMapsViewEventEmitter>(_eventEmitter);

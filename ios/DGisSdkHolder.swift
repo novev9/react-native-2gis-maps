@@ -50,7 +50,7 @@ public final class DGisSdkHolder: NSObject {
     }
 
     container = DGis.Container(
-      keySource: .fromString(KeyFromString(contents: apiKey)),
+      keySource: Self.resolveKeySource(apiKey: apiKey),
       logOptions: LogOptions(systemLevel: level),
       httpOptions: HttpOptions(),
       personalDataCollectionOptions: PersonalDataCollectionOptions(
@@ -58,6 +58,19 @@ public final class DGisSdkHolder: NSObject {
       )
     )
     initializedApiKey = apiKey
+  }
+
+  private static func resolveKeySource(apiKey: String) -> KeySource {
+    // Mobile SDK validates the signed binary dgissdk.key, not the API string —
+    // KeyFromString is left only as a dev-time fallback so init() doesn't throw
+    // synchronously, but the vendor will reject it with "File with key info is
+    // invalid". A consumer who hits this warning needs to add dgissdk.key to
+    // the app target's Copy Bundle Resources phase.
+    if let path = Bundle.main.path(forResource: "dgissdk", ofType: "key") {
+      return .fromFile(KeyFromFile(path: path))
+    }
+    NSLog("[DGisSdkHolder] WARNING: dgissdk.key missing from app bundle — falling back to KeyFromString which the Mobile SDK will reject.")
+    return .fromString(KeyFromString(contents: apiKey))
   }
 
   public func sdkOrNil() -> DGis.Container? {

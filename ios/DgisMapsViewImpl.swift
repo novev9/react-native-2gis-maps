@@ -210,6 +210,15 @@ private extension UIColor {
 
 @objc(DgisMapsViewImpl)
 public final class DgisMapsViewImpl: UIView {
+  // Fabric doesn't expose `reactTag` on the wrapper the way Paper did, so we
+  // can't propagate the JS-side tag down to this content view at mount time.
+  // Keep a weak global registry of live impls — DgisMapsModuleImpl pulls "the
+  // current map" out of here. Good enough for the single-map demos; replace
+  // with a tagged registry when we wire Fabric commands for multi-map.
+  @objc public static let registry = NSHashTable<DgisMapsViewImpl>.weakObjects()
+
+  @objc public var registeredReactTag: NSNumber?
+
   @objc public var eventCallback: DgisMapsViewEventCallback?
 
   private var sdk: DGis.Container?
@@ -242,12 +251,14 @@ public final class DgisMapsViewImpl: UIView {
   public override init(frame: CGRect) {
     super.init(frame: frame)
     backgroundColor = UIColor(white: 0.94, alpha: 1)
+    DgisMapsViewImpl.registry.add(self)
     createMapIfPossible()
   }
 
   required init?(coder: NSCoder) {
     super.init(coder: coder)
     backgroundColor = UIColor(white: 0.94, alpha: 1)
+    DgisMapsViewImpl.registry.add(self)
     createMapIfPossible()
   }
 
@@ -264,6 +275,7 @@ public final class DgisMapsViewImpl: UIView {
   }
 
   deinit {
+    DgisMapsViewImpl.registry.remove(self)
     cleanup()
   }
 
@@ -367,7 +379,8 @@ public final class DgisMapsViewImpl: UIView {
         logicalPixel: dgisLogicalPixel(clusteringRadius),
         maxZoom: dgisZoom(18),
         clusterRenderer: DgisClusterRenderer(sdk: sdk, fillColor: clusterColor, textColor: clusterTextColor),
-        minZoom: dgisZoom(1)
+        minZoom: dgisZoom(1),
+        layerId: "dgis-clusters"
       )
     } else {
       objectManager = MapObjectManager(map: map)
@@ -383,10 +396,18 @@ public final class DgisMapsViewImpl: UIView {
     polygons.removeAll()
     circles.removeAll()
 
-    currentMarkers.forEach { addMarker($0) }
-    currentPolylines.forEach { addPolyline($0) }
-    currentPolygons.forEach { addPolygon($0) }
-    currentCircles.forEach { addCircle($0) }
+    currentMarkers.forEach { spec in
+      if let object = addMarker(spec) { markers[spec.id] = object }
+    }
+    currentPolylines.forEach { spec in
+      if let object = addPolyline(spec) { polylines[spec.id] = object }
+    }
+    currentPolygons.forEach { spec in
+      if let object = addPolygon(spec) { polygons[spec.id] = object }
+    }
+    currentCircles.forEach { spec in
+      if let object = addCircle(spec) { circles[spec.id] = object }
+    }
   }
 
   @objc public func setClusteringEnabled(_ enabled: Bool, radius: NSNumber?, clusterColor: NSNumber?, clusterTextColor: NSNumber?) {
@@ -452,7 +473,7 @@ public final class DgisMapsViewImpl: UIView {
     currentSpecs: inout [String: Spec],
     currentObjects: inout [String: Object],
     nextSpecs: [String: Spec],
-    add: (Spec) -> Void
+    add: (Spec) -> Object?
   ) {
     guard let objectManager else {
       currentSpecs = nextSpecs
@@ -471,15 +492,20 @@ public final class DgisMapsViewImpl: UIView {
         objectManager.removeObject(item: object)
         currentObjects.removeValue(forKey: id)
       }
-      add(spec)
+      // Swift's exclusivity checker fires if `add` writes to the same `markers`
+      // dict that we hold `inout` here. Make the add closures return the object
+      // and own assignment in this single call site.
+      if let newObject = add(spec) {
+        currentObjects[id] = newObject
+      }
     }
 
     currentSpecs = nextSpecs
   }
 
-  private func addMarker(_ spec: MarkerSpec) {
+  private func addMarker(_ spec: MarkerSpec) -> Marker? {
     guard let objectManager, let sdk else {
-      return
+      return nil
     }
 
     do {
@@ -499,15 +525,16 @@ public final class DgisMapsViewImpl: UIView {
         zIndex: dgisZIndex(spec.zIndex)
       ))
       objectManager.addObject(item: marker)
-      markers[spec.id] = marker
+      return marker
     } catch {
       eventCallback?("onMapError", ["message": error.localizedDescription])
+      return nil
     }
   }
 
-  private func addPolyline(_ spec: PolylineSpec) {
+  private func addPolyline(_ spec: PolylineSpec) -> Polyline? {
     guard let objectManager else {
-      return
+      return nil
     }
 
     do {
@@ -524,15 +551,16 @@ public final class DgisMapsViewImpl: UIView {
         zIndex: dgisZIndex(spec.zIndex)
       ))
       objectManager.addObject(item: polyline)
-      polylines[spec.id] = polyline
+      return polyline
     } catch {
       eventCallback?("onMapError", ["message": error.localizedDescription])
+      return nil
     }
   }
 
-  private func addPolygon(_ spec: PolygonSpec) {
+  private func addPolygon(_ spec: PolygonSpec) -> Polygon? {
     guard let objectManager else {
-      return
+      return nil
     }
 
     do {
@@ -546,15 +574,16 @@ public final class DgisMapsViewImpl: UIView {
         zIndex: dgisZIndex(spec.zIndex)
       ))
       objectManager.addObject(item: polygon)
-      polygons[spec.id] = polygon
+      return polygon
     } catch {
       eventCallback?("onMapError", ["message": error.localizedDescription])
+      return nil
     }
   }
 
-  private func addCircle(_ spec: CircleSpec) {
+  private func addCircle(_ spec: CircleSpec) -> Circle? {
     guard let objectManager else {
-      return
+      return nil
     }
 
     do {
@@ -568,9 +597,10 @@ public final class DgisMapsViewImpl: UIView {
         zIndex: dgisZIndex(spec.zIndex)
       ))
       objectManager.addObject(item: circle)
-      circles[spec.id] = circle
+      return circle
     } catch {
       eventCallback?("onMapError", ["message": error.localizedDescription])
+      return nil
     }
   }
 

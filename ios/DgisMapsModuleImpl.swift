@@ -109,7 +109,24 @@ public final class DgisMapsModuleImpl: NSObject, CLLocationManagerDelegate {
   }
 
   private func findView(tag: NSNumber) -> DgisMapsViewImpl? {
-    // TODO: Prefer generated Fabric commands for per-view operations after MVP.
+    // Fabric's wrapper doesn't expose `reactTag`, so we can't propagate the
+    // JS-side tag to the impl. Single-map flows: pick any live impl from the
+    // global registry. Multi-map will need per-view dispatch (likely via
+    // Fabric commands instead of imperative module methods).
+    let live = DgisMapsViewImpl.registry.allObjects
+    if let any = live.first {
+      if live.count > 1 {
+        // Per-tag dispatch isn't wired (Fabric hides reactTag on the wrapper),
+        // so we pick the first impl. Multiple simultaneous DGisMap instances
+        // will route to a non-deterministic one — switch to Fabric commands
+        // before shipping multi-map support.
+        NSLog("[DgisMaps] WARNING: %d DgisMapsViewImpl registered; tag %@ ignored, routed to first.", live.count, tag)
+      }
+      return any
+    }
+
+    // Fallback: walk the UIKit tree from the key window. Kept for any path
+    // where the registry wasn't populated (shouldn't happen in normal mount).
     guard let root = UIApplication.shared.connectedScenes
       .compactMap({ $0 as? UIWindowScene })
       .flatMap({ $0.windows })
@@ -122,11 +139,14 @@ public final class DgisMapsModuleImpl: NSObject, CLLocationManagerDelegate {
 
   private func findView(in view: UIView, tag: Int) -> DgisMapsViewImpl? {
     if view.reactTag?.intValue == tag {
+      // The Fabric wrapper (DgisMapsView) owns the tag; the actual impl is one
+      // of its descendants (Fabric may wrap contentView in a private host view).
+      // Walk the whole subtree under the tagged view instead of only the direct
+      // subviews — otherwise flyTo / centerOnUserLocation reject with NOT_FOUND.
       if let impl = view as? DgisMapsViewImpl {
         return impl
       }
-
-      return view.subviews.compactMap { $0 as? DgisMapsViewImpl }.first
+      return findImplInDescendants(of: view)
     }
 
     for child in view.subviews {
@@ -135,6 +155,18 @@ public final class DgisMapsModuleImpl: NSObject, CLLocationManagerDelegate {
       }
     }
 
+    return nil
+  }
+
+  private func findImplInDescendants(of view: UIView) -> DgisMapsViewImpl? {
+    for child in view.subviews {
+      if let impl = child as? DgisMapsViewImpl {
+        return impl
+      }
+      if let nested = findImplInDescendants(of: child) {
+        return nested
+      }
+    }
     return nil
   }
 }
