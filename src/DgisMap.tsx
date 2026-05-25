@@ -6,6 +6,8 @@ import {
 } from 'react';
 import {
   findNodeHandle,
+  Image,
+  type ImageSourcePropType,
   type NativeSyntheticEvent,
   PermissionsAndroid,
   Platform,
@@ -32,7 +34,14 @@ export type DGisMarkerInput = {
   id: string;
   latitude: number;
   longitude: number;
+  /** Pre-encoded image bytes. Wins over `iconSource` when both are given. */
   iconBase64?: string;
+  /**
+   * Standard RN image source: `require('./pin.png')`, `{ uri: 'https://…' }`,
+   * or `{ uri: 'data:image/png;base64,…' }`. Resolved via
+   * `Image.resolveAssetSource` to an `iconUri` string for the native side.
+   */
+  iconSource?: ImageSourcePropType;
   iconWidth?: number;
   anchorX?: number;
   anchorY?: number;
@@ -122,6 +131,16 @@ function toArgb(color: ColorLike | undefined): number | undefined {
   return undefined;
 }
 
+function resolveIconUri(
+  source: ImageSourcePropType | undefined
+): string | undefined {
+  if (!source) return undefined;
+  // require('./pin.png') / asset registry / { uri }: ask RN to flatten to
+  // a single URI string the native code can fetch.
+  const resolved = Image.resolveAssetSource(source as never);
+  return resolved?.uri ?? undefined;
+}
+
 function mapMarkers(
   markers: ReadonlyArray<DGisMarkerInput> | undefined
 ): ReadonlyArray<Marker> | undefined {
@@ -131,6 +150,7 @@ function mapMarkers(
     latitude: m.latitude,
     longitude: m.longitude,
     iconBase64: m.iconBase64,
+    iconUri: m.iconBase64 ? undefined : resolveIconUri(m.iconSource),
     iconWidth: m.iconWidth,
     anchorX: m.anchorX,
     anchorY: m.anchorY,

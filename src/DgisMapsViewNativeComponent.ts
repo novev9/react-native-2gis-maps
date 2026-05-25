@@ -18,6 +18,10 @@ export type Marker = Readonly<{
   latitude: CodegenTypes.Double;
   longitude: CodegenTypes.Double;
   iconBase64?: string;
+  // Resolved by the JS facade via Image.resolveAssetSource — http(s) for the
+  // packager / CDN, file:// for prod-packaged assets. Native side loads the
+  // bytes when iconBase64 is missing.
+  iconUri?: string;
   iconWidth?: CodegenTypes.Float;
   anchorX?: CodegenTypes.Float;
   anchorY?: CodegenTypes.Float;

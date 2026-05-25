@@ -63,6 +63,9 @@ data class DgisMarkerSpec(
   val latitude: Double,
   val longitude: Double,
   val iconBase64: String?,
+  // Pre-resolved URI from Image.resolveAssetSource on the JS side. http(s)
+  // for the Metro packager or CDN, file:// for prod-packaged assets.
+  val iconUri: String?,
   val iconWidth: Float,
   val anchorX: Float,
   val anchorY: Float,
@@ -288,7 +291,7 @@ class DgisMapsView(context: Context) : FrameLayout(context) {
 
   private fun addMarker(spec: DgisMarkerSpec): Marker? {
     val manager = objectManager ?: return null
-    val icon = decodeMarkerIcon(spec.iconBase64)
+    val icon = decodeMarkerIcon(spec)
 
     val marker = Marker(
       MarkerOptions(
@@ -493,19 +496,54 @@ class DgisMapsView(context: Context) : FrameLayout(context) {
     super.onDetachedFromWindow()
   }
 
-  private fun decodeMarkerIcon(iconBase64: String?): Image? {
-    if (iconBase64.isNullOrBlank()) {
-      return null
+  private fun decodeMarkerIcon(spec: DgisMarkerSpec): Image? {
+    // base64 wins when both are given (explicit override).
+    spec.iconBase64?.takeIf { it.isNotBlank() }?.let { base64 ->
+      runCatching {
+        val bytes = Base64.decode(base64, Base64.DEFAULT)
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        if (bitmap != null) {
+          return imageFromBitmap(DGisSdkHolder.requireContext(), bitmap)
+        }
+      }
     }
 
-    return try {
-      val bytes = Base64.decode(iconBase64, Base64.DEFAULT)
-      val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
-      imageFromBitmap(DGisSdkHolder.requireContext(), bitmap)
-    } catch (_: Throwable) {
-      null
+    spec.iconUri?.takeIf { it.isNotBlank() }?.let { uri ->
+      runCatching {
+        val bitmap = loadBitmapFromUri(uri)
+        if (bitmap != null) {
+          return imageFromBitmap(DGisSdkHolder.requireContext(), bitmap)
+        }
+      }
     }
+
+    return null
   }
+
+  // Synchronous URI loader for marker icons. Marker mutation already happens
+  // off the UI thread when fed from JS so the network/disk fetch here is fine.
+  // Sources covered: http(s) (Metro packager + arbitrary CDN), file:// (prod
+  // bundle), and content:// (Android asset/content provider).
+  private fun loadBitmapFromUri(uri: String): Bitmap? = runCatching {
+    when {
+      uri.startsWith("http://") || uri.startsWith("https://") -> {
+        val connection = java.net.URL(uri).openConnection() as java.net.HttpURLConnection
+        connection.connectTimeout = 5000
+        connection.readTimeout = 5000
+        connection.inputStream.use { BitmapFactory.decodeStream(it) }
+      }
+      uri.startsWith("file://") || uri.startsWith("/") -> {
+        val path = if (uri.startsWith("file://")) uri.removePrefix("file://") else uri
+        BitmapFactory.decodeFile(path)
+      }
+      uri.startsWith("content://") -> {
+        context.contentResolver.openInputStream(android.net.Uri.parse(uri))?.use {
+          BitmapFactory.decodeStream(it)
+        }
+      }
+      else -> null
+    }
+  }.getOrNull()
 
   private fun <T> parseArray(array: ReadableArray?, parser: (ReadableMap) -> T?): List<T> {
     if (array == null) {
@@ -529,6 +567,7 @@ class DgisMapsView(context: Context) : FrameLayout(context) {
       latitude = map.getDouble("latitude"),
       longitude = map.getDouble("longitude"),
       iconBase64 = if (map.hasKey("iconBase64")) map.getString("iconBase64") else null,
+      iconUri = if (map.hasKey("iconUri")) map.getString("iconUri") else null,
       iconWidth = if (map.hasKey("iconWidth")) map.getDouble("iconWidth").toFloat() else 32f,
       anchorX = if (map.hasKey("anchorX")) map.getDouble("anchorX").toFloat() else 0.5f,
       anchorY = if (map.hasKey("anchorY")) map.getDouble("anchorY").toFloat() else 1f,

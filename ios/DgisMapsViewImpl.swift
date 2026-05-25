@@ -30,6 +30,9 @@ private struct MarkerSpec: Equatable {
   let latitude: Double
   let longitude: Double
   let iconBase64: String?
+  // Pre-resolved URI from Image.resolveAssetSource on the JS side. http(s)
+  // for the Metro packager / CDN, file:// for prod-packaged assets.
+  let iconUri: String?
   let iconWidth: Float
   let anchorX: Float
   let anchorY: Float
@@ -48,6 +51,7 @@ private struct MarkerSpec: Equatable {
     self.latitude = latitude.doubleValue
     self.longitude = longitude.doubleValue
     self.iconBase64 = raw["iconBase64"] as? String
+    self.iconUri = raw["iconUri"] as? String
     self.iconWidth = (raw["iconWidth"] as? NSNumber)?.floatValue ?? 32
     self.anchorX = (raw["anchorX"] as? NSNumber)?.floatValue ?? 0.5
     self.anchorY = (raw["anchorY"] as? NSNumber)?.floatValue ?? 1
@@ -503,18 +507,56 @@ public final class DgisMapsViewImpl: UIView {
     currentSpecs = nextSpecs
   }
 
+  // Resolves a marker icon from either iconBase64 (wins, explicit override) or
+  // iconUri (resolved by the JS facade via Image.resolveAssetSource). The URI
+  // fetch is synchronous on the current thread; marker mutations already run
+  // off the UI thread from RN's prop diff so blocking is fine.
+  private func resolveMarkerIcon(spec: MarkerSpec, sdk: DGis.Container) throws -> Image? {
+    if let base64 = spec.iconBase64,
+       let data = Data(base64Encoded: base64),
+       let image = UIImage(data: data) {
+      return try sdk.imageFactory.make(image: image)
+    }
+
+    if let uri = spec.iconUri, let image = loadUIImage(uri: uri) {
+      return try sdk.imageFactory.make(image: image)
+    }
+
+    return nil
+  }
+
+  private func loadUIImage(uri: String) -> UIImage? {
+    if uri.hasPrefix("data:") {
+      // data:image/...;base64,<payload> — strip the header, decode the rest.
+      guard let comma = uri.range(of: ","),
+            let data = Data(base64Encoded: String(uri[comma.upperBound...]))
+      else { return nil }
+      return UIImage(data: data)
+    }
+
+    if let url = URL(string: uri) {
+      // Synchronous fetch covers http(s) (Metro packager / CDN) and file://
+      // schemes; the asset URL scheme RN uses for require() also resolves here
+      // because Metro serves it as http during development.
+      if let data = try? Data(contentsOf: url) {
+        return UIImage(data: data)
+      }
+    }
+
+    if FileManager.default.fileExists(atPath: uri) {
+      return UIImage(contentsOfFile: uri)
+    }
+
+    return nil
+  }
+
   private func addMarker(_ spec: MarkerSpec) -> Marker? {
     guard let objectManager, let sdk else {
       return nil
     }
 
     do {
-      let icon: Image? = try spec.iconBase64.flatMap { base64 in
-        guard let data = Data(base64Encoded: base64), let image = UIImage(data: data) else {
-          return nil
-        }
-        return try sdk.imageFactory.make(image: image)
-      }
+      let icon: Image? = try resolveMarkerIcon(spec: spec, sdk: sdk)
 
       let marker = try Marker(options: MarkerOptions(
         position: dgisGeoPointWithElevation(latitude: spec.latitude, longitude: spec.longitude),
