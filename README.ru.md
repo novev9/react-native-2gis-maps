@@ -9,9 +9,9 @@ React Native Fabric/TurboModule обёртка над 2GIS Mobile SDK 13.5 дл�
 > 🇬🇧 English version — [README.md](README.md).
 
 <p align="center">
-  <video src="docs/media/android-demo.mp4" width="320" controls muted playsinline loop>Демо Android</video>
+  <video src="https://github.com/user-attachments/assets/a871787e-4a40-449f-8e30-cf966bd4a4c6" width="320" controls muted playsinline loop>Демо Android</video>
   &nbsp;&nbsp;
-  <video src="docs/media/ios-demo.mp4" width="320" controls muted playsinline loop>Демо iOS</video>
+  <video src="https://github.com/user-attachments/assets/3d4cee9b-f6bf-4b3a-8e7e-cc00b01da854" width="320" controls muted playsinline loop>Демо iOS</video>
 </p>
 
 ## Быстрый старт
