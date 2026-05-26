@@ -2,9 +2,8 @@
  * JSX-child placeholders for <DGisMap />.
  *
  * Each component returns null — the parent `<DGisMap />` collects them via
- * `React.Children.toArray`, peeks at `displayName`, and builds the props
- * arrays for the underlying Fabric component. Mirrors the yandex-map API so
- * consumers can swap providers without rewriting JSX trees.
+ * `React.Children.forEach`, peeks at a static brand on `element.type`, and
+ * builds the props arrays for the underlying Fabric component.
  *
  * ```tsx
  * <DGisMap>
@@ -16,6 +15,7 @@
  * ```
  */
 
+import { Children, isValidElement } from 'react';
 import type { ImageSourcePropType } from 'react-native';
 import type {
   ColorLike,
@@ -24,6 +24,21 @@ import type {
   DGisPolygonInput,
   DGisPolylineInput,
 } from './DgisMap';
+
+// Static brand on each child component. We tag types by attaching a stable
+// string field rather than relying on `displayName` (which can be stripped /
+// renamed by Fast Refresh or bundlers) or on `element.type === Marker`
+// identity (which breaks if two copies of the package end up in the graph
+// through symlinks / workspaces). Children must be the exported placeholder
+// components directly — wrapping with `React.memo`/`forwardRef` would change
+// `element.type` and bypass the brand lookup.
+const DGIS_CHILD_KIND = '__dgisMapChildKind' as const;
+type DgisChildKind = 'Marker' | 'Polyline' | 'Polygon' | 'Circle';
+
+type DgisChildComponent<P> = ((props: P) => null) & {
+  displayName?: string;
+  [DGIS_CHILD_KIND]?: DgisChildKind;
+};
 
 type Point = { latitude: number; longitude: number };
 
@@ -67,25 +82,25 @@ export type DGisCircleChildProps = {
   zIndex?: number;
 };
 
-export function Marker(_props: DGisMarkerChildProps): null {
-  return null;
-}
+export const Marker: DgisChildComponent<DGisMarkerChildProps> = (_props) =>
+  null;
 Marker.displayName = 'DGisMap.Marker';
+Marker[DGIS_CHILD_KIND] = 'Marker';
 
-export function Polyline(_props: DGisPolylineChildProps): null {
-  return null;
-}
+export const Polyline: DgisChildComponent<DGisPolylineChildProps> = (_props) =>
+  null;
 Polyline.displayName = 'DGisMap.Polyline';
+Polyline[DGIS_CHILD_KIND] = 'Polyline';
 
-export function Polygon(_props: DGisPolygonChildProps): null {
-  return null;
-}
+export const Polygon: DgisChildComponent<DGisPolygonChildProps> = (_props) =>
+  null;
 Polygon.displayName = 'DGisMap.Polygon';
+Polygon[DGIS_CHILD_KIND] = 'Polygon';
 
-export function Circle(_props: DGisCircleChildProps): null {
-  return null;
-}
+export const Circle: DgisChildComponent<DGisCircleChildProps> = (_props) =>
+  null;
 Circle.displayName = 'DGisMap.Circle';
+Circle[DGIS_CHILD_KIND] = 'Circle';
 
 /**
  * Internal: takes whatever was nested under <DGisMap> and sorts JSX children
@@ -105,19 +120,19 @@ export function collectMapChildren(children: React.ReactNode): {
   const circles: DGisCircleInput[] = [];
 
   const walk = (node: React.ReactNode): void => {
+    if (node == null || typeof node === 'boolean') return;
     if (Array.isArray(node)) {
       node.forEach(walk);
       return;
     }
-    if (node == null || typeof node === 'boolean') return;
-    if (typeof node !== 'object') return;
+    if (!isValidElement(node)) return;
 
     const element = node as React.ReactElement<unknown>;
-    const type = element.type as { displayName?: string } | undefined;
-    const name = typeof type === 'object' ? type?.displayName : undefined;
+    const type = element.type as DgisChildComponent<unknown> | undefined;
+    const kind = type?.[DGIS_CHILD_KIND];
 
-    switch (name) {
-      case 'DGisMap.Marker': {
+    switch (kind) {
+      case 'Marker': {
         const p = element.props as DGisMarkerChildProps;
         markers.push({
           id: p.id,
@@ -132,7 +147,7 @@ export function collectMapChildren(children: React.ReactNode): {
         });
         return;
       }
-      case 'DGisMap.Polyline': {
+      case 'Polyline': {
         const p = element.props as DGisPolylineChildProps;
         polylines.push({
           id: p.id,
@@ -145,7 +160,7 @@ export function collectMapChildren(children: React.ReactNode): {
         });
         return;
       }
-      case 'DGisMap.Polygon': {
+      case 'Polygon': {
         const p = element.props as DGisPolygonChildProps;
         polygons.push({
           id: p.id,
@@ -157,7 +172,7 @@ export function collectMapChildren(children: React.ReactNode): {
         });
         return;
       }
-      case 'DGisMap.Circle': {
+      case 'Circle': {
         const p = element.props as DGisCircleChildProps;
         circles.push({
           id: p.id,
@@ -172,7 +187,7 @@ export function collectMapChildren(children: React.ReactNode): {
         return;
       }
       default: {
-        // React.Fragment — walk children. Unknown nodes are skipped.
+        // React.Fragment / unknown wrapper — descend into children if any.
         const maybeChildren = (element.props as { children?: React.ReactNode })
           ?.children;
         if (maybeChildren !== undefined) walk(maybeChildren);
@@ -180,7 +195,7 @@ export function collectMapChildren(children: React.ReactNode): {
     }
   };
 
-  walk(children);
+  Children.forEach(children, walk);
 
   return { markers, polylines, polygons, circles };
 }
