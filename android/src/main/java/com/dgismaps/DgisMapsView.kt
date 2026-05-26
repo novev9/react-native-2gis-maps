@@ -130,6 +130,7 @@ class DgisMapsView(context: Context) : FrameLayout(context) {
   private var clusteringRadius = 80f
   private var clusterColor = 0xff007aff.toInt()
   private var clusterTextColor = 0xffffffff.toInt()
+  private var cachedDefaultMarkerIcon: Image? = null
 
   init {
     setBackgroundColor(android.graphics.Color.rgb(240, 240, 240))
@@ -291,7 +292,10 @@ class DgisMapsView(context: Context) : FrameLayout(context) {
 
   private fun addMarker(spec: DgisMarkerSpec): Marker? {
     val manager = objectManager ?: return null
-    val icon = decodeMarkerIcon(spec)
+    // 2GIS does not render a default pin when `icon = null` — the marker is
+    // silently invisible. Fall back to a built-in dot so consumers who omit
+    // `iconSource` still see something on the map.
+    val icon = decodeMarkerIcon(spec) ?: defaultMarkerIcon()
 
     val marker = Marker(
       MarkerOptions(
@@ -307,6 +311,20 @@ class DgisMapsView(context: Context) : FrameLayout(context) {
 
     manager.addObject(marker)
     return marker
+  }
+
+  private fun defaultMarkerIcon(): Image {
+    cachedDefaultMarkerIcon?.let { return it }
+    val bitmap = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    paint.color = 0xFFFFFFFF.toInt()
+    canvas.drawCircle(32f, 32f, 30f, paint)
+    paint.color = 0xFF1E88E5.toInt()
+    canvas.drawCircle(32f, 32f, 26f, paint)
+    val icon = imageFromBitmap(DGisSdkHolder.requireContext(), bitmap)
+    cachedDefaultMarkerIcon = icon
+    return icon
   }
 
   private fun addPolyline(spec: DgisPolylineSpec): Polyline? {
@@ -394,8 +412,20 @@ class DgisMapsView(context: Context) : FrameLayout(context) {
 
   private fun recreateObjectManager() {
     val readyMap = map ?: return
-    objectManager?.removeAll()
+    // Close the previous manager fully — `removeAll()` alone leaves it
+    // attached to the map, and a fresh `MapObjectManager.withClustering(...)`
+    // ends up stacking ghost managers on the same map.
+    objectManager?.let { manager ->
+      runCatching { manager.removeAll() }
+        .onFailure { android.util.Log.w("DgisMapsView", "removeAll failed", it) }
+      runCatching { manager.close() }
+        .onFailure { android.util.Log.w("DgisMapsView", "close failed", it) }
+    }
 
+    // `layerId` must be null — passing a custom string ("dgis-clusters") binds
+    // the manager to a style layer of that name, and if the basemap style does
+    // not declare such a Dynamic-Object layer, every added object silently
+    // never paints. The default `null` puts objects on top of the basemap.
     objectManager = if (clusteringEnabled) {
       MapObjectManager.withClustering(
         readyMap,
@@ -403,10 +433,10 @@ class DgisMapsView(context: Context) : FrameLayout(context) {
         Zoom(18f),
         ClusterRenderer(clusterColor, clusterTextColor),
         Zoom(1f),
-        "dgis-clusters"
+        null
       )
     } else {
-      MapObjectManager(readyMap)
+      MapObjectManager(readyMap, null)
     }
 
     markers.clear()
@@ -480,7 +510,16 @@ class DgisMapsView(context: Context) : FrameLayout(context) {
       }
     }
 
-    objectManager?.removeAll()
+    // Both calls — `removeAll()` empties the manager, `close()` detaches it
+    // from the map. Without the second one the SDK keeps the manager bound
+    // and a fresh re-attach (after RN remounts the view) would silently
+    // stack ghost managers on the same map.
+    objectManager?.let { manager ->
+      runCatching { manager.removeAll() }
+        .onFailure { android.util.Log.w("DgisMapsView", "removeAll on detach failed", it) }
+      runCatching { manager.close() }
+        .onFailure { android.util.Log.w("DgisMapsView", "close on detach failed", it) }
+    }
 
     lifecycle?.let { currentLifecycle ->
       view?.let(currentLifecycle::removeObserver)
@@ -642,16 +681,18 @@ class DgisMapsView(context: Context) : FrameLayout(context) {
     private val fill: Int,
     private val text: Int
   ) : SimpleClusterRenderer {
-    private val cache = mutableMapOf<Int, Image>()
+    // Single background icon reused for every cluster — the count is drawn by
+    // the SDK as a text overlay via `SimpleClusterOptions.textStyle`, so the
+    // bitmap is just the colored circle. Drawing the count into the bitmap as
+    // well caused a visible double-render of the digits.
+    private val backgroundIcon: Image by lazy {
+      imageFromBitmap(DGisSdkHolder.requireContext(), makeClusterBackground())
+    }
 
     override fun renderCluster(cluster: SimpleClusterObject): SimpleClusterOptions {
       val count = cluster.objectCount
-      val icon = cache.getOrPut(count) {
-        imageFromBitmap(DGisSdkHolder.requireContext(), makeClusterBitmap(count))
-      }
-
       return SimpleClusterOptions(
-        icon = icon,
+        icon = backgroundIcon,
         anchor = Anchor(0.5f, 0.5f),
         text = count.toString(),
         textStyle = TextStyle(
@@ -666,18 +707,12 @@ class DgisMapsView(context: Context) : FrameLayout(context) {
       )
     }
 
-    private fun makeClusterBitmap(count: Int): Bitmap {
+    private fun makeClusterBackground(): Bitmap {
       val bitmap = Bitmap.createBitmap(88, 88, Bitmap.Config.ARGB_8888)
       val canvas = Canvas(bitmap)
       val paint = Paint(Paint.ANTI_ALIAS_FLAG)
       paint.color = fill
       canvas.drawCircle(44f, 44f, 44f, paint)
-      paint.color = text
-      paint.textAlign = Paint.Align.CENTER
-      paint.textSize = 30f
-      paint.isFakeBoldText = true
-      val y = 44f - (paint.descent() + paint.ascent()) / 2
-      canvas.drawText(count.toString(), 44f, y, paint)
       return bitmap
     }
   }

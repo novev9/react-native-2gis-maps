@@ -148,28 +148,31 @@ private struct CircleSpec: Equatable {
 
 private final class DgisClusterRenderer: SimpleClusterRenderer {
   private let sdk: DGis.Container
-  private let fillColor: UInt
-  private let textColor: UInt
-  private var cache: [UInt: Image] = [:]
+  private let fillColor: UInt32
+  private let textColor: UInt32
+  // Single background image reused for every cluster — the count is drawn by
+  // the SDK as a text overlay via `SimpleClusterOptions.textStyle`, so the
+  // bitmap is just the coloured circle. Drawing the count into the bitmap as
+  // well caused a visible double-render of the digits.
+  private lazy var backgroundIcon: Image? = makeBackground()
 
   init(sdk: DGis.Container, fillColor: UInt32, textColor: UInt32) {
     self.sdk = sdk
-    self.fillColor = UInt(fillColor)
-    self.textColor = UInt(textColor)
+    self.fillColor = fillColor
+    self.textColor = textColor
   }
 
   func renderCluster(cluster: SimpleClusterObject) -> SimpleClusterOptions {
     let count = UInt(cluster.objectCount)
-    let image = cache[count] ?? makeImage(count: count)
-    if let image {
-      cache[count] = image
-    }
-
     return SimpleClusterOptions(
-      icon: image,
+      icon: backgroundIcon,
       iconMapDirection: nil,
       text: String(count),
-      textStyle: nil,
+      textStyle: TextStyle(
+        fontSize: dgisLogicalPixel(15),
+        color: Color(argb: textColor),
+        textPlacement: .centerCenter
+      ),
       iconWidth: dgisLogicalPixel(44),
       userData: Int(count),
       zIndex: dgisZIndex(10),
@@ -177,27 +180,13 @@ private final class DgisClusterRenderer: SimpleClusterRenderer {
     )
   }
 
-  private func makeImage(count: UInt) -> Image? {
+  private func makeBackground() -> Image? {
     let size = CGSize(width: 44, height: 44)
-    UIGraphicsBeginImageContextWithOptions(size, false, 0)
-    defer { UIGraphicsEndImageContext() }
-
-    UIColor(argb: UInt32(fillColor)).setFill()
-    UIBezierPath(ovalIn: CGRect(origin: .zero, size: size)).fill()
-
-    let paragraph = NSMutableParagraphStyle()
-    paragraph.alignment = .center
-    let attrs: [NSAttributedString.Key: Any] = [
-      .font: UIFont.boldSystemFont(ofSize: 15),
-      .foregroundColor: UIColor(argb: UInt32(textColor)),
-      .paragraphStyle: paragraph
-    ]
-    String(count).draw(in: CGRect(x: 0, y: 12, width: size.width, height: 20), withAttributes: attrs)
-
-    guard let uiImage = UIGraphicsGetImageFromCurrentImageContext() else {
-      return nil
+    let renderer = UIGraphicsImageRenderer(size: size)
+    let uiImage = renderer.image { ctx in
+      UIColor(argb: fillColor).setFill()
+      UIBezierPath(ovalIn: CGRect(origin: .zero, size: size)).fill()
     }
-
     return try? sdk.imageFactory.make(image: uiImage)
   }
 }
@@ -230,6 +219,7 @@ public final class DgisMapsViewImpl: UIView {
   private var map: DGis.Map?
   private var mapUIView: (UIView & IMapUIView)?
   private var objectManager: MapObjectManager?
+  private var cachedDefaultMarkerIcon: Image?
   private var locationSource: MyLocationMapObjectSource?
   private var locationModel: MyLocationControlModel?
   private var objectTapCallback: MapObjectTappedCallback?
@@ -377,6 +367,11 @@ public final class DgisMapsViewImpl: UIView {
 
     objectManager?.removeAll()
 
+    // `layerId` must be nil — passing a custom string binds the manager to a
+    // Dynamic-Object style layer of that name, and if the basemap style does
+    // not declare such a layer, every added object silently never paints. The
+    // default (nil) puts objects on top of the basemap. Confirmed on Android
+    // — same SDK contract on iOS.
     if clusteringEnabled {
       objectManager = MapObjectManager.withClustering(
         map: map,
@@ -384,10 +379,10 @@ public final class DgisMapsViewImpl: UIView {
         maxZoom: dgisZoom(18),
         clusterRenderer: DgisClusterRenderer(sdk: sdk, fillColor: clusterColor, textColor: clusterTextColor),
         minZoom: dgisZoom(1),
-        layerId: "dgis-clusters"
+        layerId: nil
       )
     } else {
-      objectManager = MapObjectManager(map: map)
+      objectManager = MapObjectManager(map: map, layerId: nil)
     }
 
     let currentMarkers = markerSpecs.values
@@ -525,6 +520,23 @@ public final class DgisMapsViewImpl: UIView {
     return nil
   }
 
+  private func defaultMarkerIcon(sdk: DGis.Container) -> Image? {
+    if let cached = cachedDefaultMarkerIcon {
+      return cached
+    }
+    let size = CGSize(width: 64, height: 64)
+    let renderer = UIGraphicsImageRenderer(size: size)
+    let uiImage = renderer.image { ctx in
+      ctx.cgContext.setFillColor(UIColor.white.cgColor)
+      ctx.cgContext.fillEllipse(in: CGRect(x: 2, y: 2, width: 60, height: 60))
+      ctx.cgContext.setFillColor(UIColor(red: 30/255, green: 136/255, blue: 229/255, alpha: 1).cgColor)
+      ctx.cgContext.fillEllipse(in: CGRect(x: 6, y: 6, width: 52, height: 52))
+    }
+    let icon = try? sdk.imageFactory.make(image: uiImage)
+    cachedDefaultMarkerIcon = icon
+    return icon
+  }
+
   private func loadUIImage(uri: String) -> UIImage? {
     if uri.hasPrefix("data:") {
       // data:image/...;base64,<payload> — strip the header, decode the rest.
@@ -556,7 +568,11 @@ public final class DgisMapsViewImpl: UIView {
     }
 
     do {
+      // 2GIS does not render a default pin when `icon` is nil — the SDK rejects
+      // the marker outright. Fall back to a built-in dot so consumers who omit
+      // `iconSource` still see something on the map. Same contract as Android.
       let icon: Image? = try resolveMarkerIcon(spec: spec, sdk: sdk)
+        ?? defaultMarkerIcon(sdk: sdk)
 
       let marker = try Marker(options: MarkerOptions(
         position: dgisGeoPointWithElevation(latitude: spec.latitude, longitude: spec.longitude),
