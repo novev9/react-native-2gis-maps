@@ -88,3 +88,9 @@ nitrogen/
 # 2GIS Mobile SDK keys (secret, request via dev.2gis.ru per applicationId/bundleId)
 **/dgissdk.key
 
+# Local agent / IDE assistants
+.claude/
+.codex/
+CLAUDE.md
+AGENTS.md
+

@@ -17,7 +17,12 @@ import {
   requestLocationPermission,
 } from 'react-native-2gis-maps';
 
-const DGIS_API_KEY = '<REDACTED_2GIS_API_KEY>';
+// Request a Directory API key at https://dev.2gis.ru for your applicationId /
+// bundleId, then drop the matching signed `dgissdk.key` next to the app entry
+// (see ios/<App>/dgissdk.key and android/app/src/main/assets/dgissdk.key).
+// The string below is only the fallback used when the signed key file is
+// missing.
+const DGIS_API_KEY = '<YOUR_2GIS_API_KEY>';
 
 const MOSCOW = { latitude: 55.752425, longitude: 37.613983 };
 const RED_SQUARE = { latitude: 55.7539, longitude: 37.6208 };
