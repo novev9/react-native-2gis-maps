@@ -8,6 +8,12 @@ React Native Fabric/TurboModule binding for 2GIS Mobile SDK 13.5 on iOS and Andr
 
 > 🇷🇺 Русская версия — [README.ru.md](README.ru.md).
 
+<p align="center">
+  <video src="docs/media/android-demo.mp4" width="320" controls muted playsinline loop>Android demo</video>
+  &nbsp;&nbsp;
+  <video src="docs/media/ios-demo.mp4" width="320" controls muted playsinline loop>iOS demo</video>
+</p>
+
 ## Quick Start
 
 ### 1. Install
