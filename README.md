@@ -323,7 +323,6 @@ circles;
 src/      TypeScript source and public entry point
 ios/      Swift and Objective-C++ wrapper, podspec
 android/  Kotlin source and Gradle config
-cpp/      C++ Fabric component descriptors
 example/  Example app
 ```
 
